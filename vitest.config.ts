@@ -6,6 +6,7 @@ export default defineConfig({
     globals: true,
     environment: "node",
     coverage: { provider: "v8", reporter: ["text", "lcov"] },
+    fileParallelism: false, // testes de integração compartilham banco
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
