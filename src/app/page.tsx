@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, getTimeRemaining, formatMileage } from "@/lib/utils";
+import { Suspense } from "react";
+import FilterBar from "@/components/FilterBar";
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +25,39 @@ const BRAND_TAGS = [
   "Camaro",
 ];
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const params = await searchParams;
+  const status = params.status || "active";
+  const yearRange = params.year || "";
+  const transmission = params.transmission || "all";
+  const fuel = params.fuel || "all";
+
+  // Construir filtro
+  const where: Record<string, unknown> = {};
+
+  if (status === "all") {
+    where.status = { in: ["approved", "active", "sold"] };
+  } else if (status === "active") {
+    where.status = { in: ["approved", "active"] };
+  } else {
+    where.status = status;
+  }
+
+  if (yearRange) {
+    const [min, max] = yearRange.split("-").map(Number);
+    if (min && max) where.year = { gte: min, lte: max };
+  }
+
+  if (transmission && transmission !== "all") {
+    where.transmission = transmission;
+  }
+
+  if (fuel && fuel !== "all") {
+    where.fuel = fuel;
+  }
+
   const vehicles = await prisma.vehicle.findMany({
-    where: { status: { in: ["approved", "active", "sold"] } },
+    where,
     include: {
       seller: { select: { name: true } },
       images: { where: { isCover: true }, take: 1 },
@@ -170,6 +202,11 @@ export default async function HomePage() {
 
       {/* Grid de veículos - 4 colunas */}
       <section className="mt-6 pb-16">
+        {/* Filtros */}
+        <Suspense fallback={null}>
+          <FilterBar />
+        </Suspense>
+
         {vehicles.length === 0 ? (
           <div className="text-center py-16 bg-[#1c1c1c] rounded-xl">
             <p className="text-gray-400 text-lg">Nenhum anúncio ativo.</p>

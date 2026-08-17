@@ -88,10 +88,45 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
+  
+  // Filtros
   const status = searchParams.get("status") || "approved";
+  const yearMin = searchParams.get("yearMin");
+  const yearMax = searchParams.get("yearMax");
+  const transmission = searchParams.get("transmission");
+  const fuel = searchParams.get("fuel");
+
+  // Construir where dinamicamente
+  const where: Record<string, unknown> = {};
+
+  // Status
+  if (status === "all") {
+    where.status = { in: ["approved", "active", "sold"] };
+  } else if (status === "active") {
+    where.status = { in: ["approved", "active"] };
+  } else {
+    where.status = status;
+  }
+
+  // Ano
+  if (yearMin || yearMax) {
+    where.year = {};
+    if (yearMin) (where.year as Record<string, number>).gte = parseInt(yearMin);
+    if (yearMax) (where.year as Record<string, number>).lte = parseInt(yearMax);
+  }
+
+  // Câmbio
+  if (transmission && transmission !== "all") {
+    where.transmission = transmission;
+  }
+
+  // Combustível
+  if (fuel && fuel !== "all") {
+    where.fuel = fuel;
+  }
 
   const vehicles = await prisma.vehicle.findMany({
-    where: { status: status === "all" ? undefined : status },
+    where,
     include: {
       seller: { select: { id: true, name: true } },
       images: { orderBy: { order: "asc" } },
