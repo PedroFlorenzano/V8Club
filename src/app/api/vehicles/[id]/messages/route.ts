@@ -1,196 +1,108 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { SendMessageInputSchema } from "@/application/dtos";
+import { container } from "@/infrastructure/container";
+import { withAuth, withVerified } from "@/presentation/middleware/auth.middleware";
+import { handleError } from "@/presentation/middleware/error-handler";
+import { ContentModerationService } from "@/domain/services";
+import { ValidationError } from "@/domain/errors";
 
 /**
- * GET - Listar mensagens do chat (entre usuário logado e vendedor, no contexto do veículo)
- * Vendedor vê todas as conversas. Comprador vê só a dele com o vendedor.
+ * GET - Listar mensagens do chat
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await getCurrentUser();
-  if (!session) {
-    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
-  }
+export const GET = withAuth(async (request, { params, session }) => {
+  try {
+    const { id: vehicleId } = await params;
+    const vehicle = await container.vehicleRepo.findById(vehicleId);
+    if (!vehicle) {
+      return NextResponse.json({ error: "Veículo não encontrado" }, { status: 404 });
+    }
 
-  const { id: vehicleId } = await params;
+    const isSeller = session.userId === vehicle.sellerId;
+    let messages;
 
-  // Verificar se veículo existe
-  const vehicle = await prisma.vehicle.findUnique({
-    where: { id: vehicleId },
-    select: { sellerId: true, status: true },
-  });
-
-  if (!vehicle) {
-    return NextResponse.json({ error: "Veículo não encontrado" }, { status: 404 });
-  }
-
-  const isSeller = session.userId === vehicle.sellerId;
-
-  let messages;
-
-  if (isSeller) {
-    // Vendedor vê todas as mensagens recebidas e enviadas para este veículo
-    messages = await prisma.message.findMany({
-      where: { vehicleId },
-      include: {
-        sender: { select: { id: true, name: true } },
-        receiver: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "asc" },
-    });
-  } else {
-    // Comprador vê só suas mensagens com o vendedor
-    messages = await prisma.message.findMany({
-      where: {
+    if (isSeller) {
+      messages = await container.messageRepo.findByVehicle(vehicleId);
+    } else {
+      messages = await container.messageRepo.findByVehicleAndUsers(
         vehicleId,
-        OR: [
-          { senderId: session.userId, receiverId: vehicle.sellerId },
-          { senderId: vehicle.sellerId, receiverId: session.userId },
-        ],
-      },
-      include: {
-        sender: { select: { id: true, name: true } },
-        receiver: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "asc" },
-    });
+        session.userId,
+        vehicle.sellerId
+      );
+      await container.messageRepo.markAsRead(vehicleId, session.userId);
+    }
 
-    // Marcar mensagens recebidas como lidas
-    await prisma.message.updateMany({
-      where: {
-        vehicleId,
-        receiverId: session.userId,
-        readAt: null,
-      },
-      data: { readAt: new Date() },
+    return NextResponse.json({
+      messages: messages.map((m) => ({
+        id: m.id,
+        content: m.content,
+        senderId: m.senderId,
+        receiverId: m.receiverId,
+        isOwn: m.senderId === session.userId,
+        readAt: m.readAt?.toISOString() || null,
+        createdAt: m.createdAt.toISOString(),
+      })),
+      isSeller,
     });
+  } catch (error) {
+    return handleError(error);
   }
-
-  return NextResponse.json({
-    messages: messages.map((m) => ({
-      id: m.id,
-      content: m.content,
-      senderId: m.senderId,
-      senderName: m.sender.name,
-      receiverId: m.receiverId,
-      receiverName: m.receiver.name,
-      isOwn: m.senderId === session.userId,
-      readAt: m.readAt?.toISOString() || null,
-      createdAt: m.createdAt.toISOString(),
-    })),
-    isSeller,
-  });
-}
+});
 
 /**
- * POST - Enviar mensagem (requer autenticação + verificação)
- * Comprador envia para vendedor. Vendedor envia para comprador específico.
+ * POST - Enviar mensagem (requer verificação)
  */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await getCurrentUser();
-  if (!session) {
-    return NextResponse.json({ error: "Não autenticado", requireLogin: true }, { status: 401 });
-  }
+export const POST = withVerified(async (request, { params, session }) => {
+  try {
+    const { id: vehicleId } = await params;
+    const body = await request.json();
+    const { content, receiverId } = SendMessageInputSchema.parse(body);
 
-  if (session.verificationStatus !== "verified") {
-    return NextResponse.json(
-      { error: "Verifique sua identidade para enviar mensagens", requireVerification: true },
-      { status: 403 }
-    );
-  }
-
-  const { id: vehicleId } = await params;
-  const body = await request.json();
-  const { content, receiverId } = body;
-
-  if (!content || !content.trim()) {
-    return NextResponse.json({ error: "Mensagem não pode ser vazia" }, { status: 400 });
-  }
-
-  if (content.length > 1000) {
-    return NextResponse.json({ error: "Mensagem muito longa (máx 1000 caracteres)" }, { status: 400 });
-  }
-
-  // Bloquear envio de dados de contato
-  const contactPatterns = [
-    /\b\d{2}[\s.-]?\d{4,5}[\s.-]?\d{4}\b/, // telefone
-    /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/, // email
-    /whatsapp|whats|zap|wpp|telegram/i, // menções a mensageiros
-    /instagram|insta|ig:|@\w+/i, // redes sociais
-  ];
-
-  for (const pattern of contactPatterns) {
-    if (pattern.test(content)) {
-      return NextResponse.json(
-        { error: "Não é permitido compartilhar dados de contato nas mensagens. Os dados serão liberados após a venda ser concluída." },
-        { status: 400 }
+    // Moderação de conteúdo
+    const moderation = ContentModerationService.check(content);
+    if (!moderation.allowed) {
+      throw new ValidationError(
+        "Não é permitido compartilhar dados de contato nas mensagens. Os dados serão liberados após a venda ser concluída."
       );
     }
-  }
 
-  // Verificar veículo
-  const vehicle = await prisma.vehicle.findUnique({
-    where: { id: vehicleId },
-    select: { sellerId: true, status: true },
-  });
-
-  if (!vehicle) {
-    return NextResponse.json({ error: "Veículo não encontrado" }, { status: 404 });
-  }
-
-  if (vehicle.status === "sold") {
-    return NextResponse.json({ error: "Este veículo já foi vendido" }, { status: 400 });
-  }
-
-  const isSeller = session.userId === vehicle.sellerId;
-
-  // Determinar destinatário
-  let finalReceiverId: string;
-
-  if (isSeller) {
-    // Vendedor responde para um comprador específico
-    if (!receiverId) {
-      return NextResponse.json({ error: "Indique para qual comprador deseja responder" }, { status: 400 });
+    // Determinar destinatário
+    const vehicle = await container.vehicleRepo.findById(vehicleId);
+    if (!vehicle) {
+      return NextResponse.json({ error: "Veículo não encontrado" }, { status: 404 });
     }
-    finalReceiverId = receiverId;
-  } else {
-    // Comprador envia para o vendedor
-    finalReceiverId = vehicle.sellerId;
-  }
 
-  // Não pode enviar mensagem para si mesmo
-  if (session.userId === finalReceiverId) {
-    return NextResponse.json({ error: "Não pode enviar mensagem para si mesmo" }, { status: 400 });
-  }
+    if (vehicle.status === "sold") {
+      throw new ValidationError("Este veículo já foi vendido");
+    }
 
-  // Criar mensagem
-  const message = await prisma.message.create({
-    data: {
+    const isSeller = session.userId === vehicle.sellerId;
+    const finalReceiverId = isSeller ? receiverId : vehicle.sellerId;
+
+    if (!finalReceiverId) {
+      throw new ValidationError("Indique para qual comprador deseja responder");
+    }
+    if (session.userId === finalReceiverId) {
+      throw new ValidationError("Não pode enviar mensagem para si mesmo");
+    }
+
+    const message = await container.messageRepo.create({
       content: content.trim(),
       senderId: session.userId,
       receiverId: finalReceiverId,
       vehicleId,
-    },
-    include: {
-      sender: { select: { id: true, name: true } },
-    },
-  });
+    });
 
-  return NextResponse.json({
-    message: {
-      id: message.id,
-      content: message.content,
-      senderId: message.senderId,
-      senderName: message.sender.name,
-      receiverId: message.receiverId,
-      isOwn: true,
-      createdAt: message.createdAt.toISOString(),
-    },
-  });
-}
+    return NextResponse.json({
+      message: {
+        id: message.id,
+        content: message.content,
+        senderId: message.senderId,
+        receiverId: message.receiverId,
+        isOwn: true,
+        createdAt: message.createdAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    return handleError(error);
+  }
+});

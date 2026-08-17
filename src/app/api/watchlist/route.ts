@@ -1,103 +1,62 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { AddToWatchlistInputSchema } from "@/application/dtos";
+import { container } from "@/infrastructure/container";
+import { withAuth } from "@/presentation/middleware/auth.middleware";
+import { handleError } from "@/presentation/middleware/error-handler";
+import { NotFoundError, ConflictError } from "@/domain/errors";
 
 /**
- * GET - Listar veículos na watchlist do usuário
+ * GET - Listar veículos na watchlist
  */
-export async function GET() {
-  const session = await getCurrentUser();
-  if (!session) {
-    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+export const GET = withAuth(async (_request, { session }) => {
+  try {
+    const items = await container.watchlistRepo.findByUserId(session.userId);
+    return NextResponse.json({ items });
+  } catch (error) {
+    return handleError(error);
   }
-
-  const watchlist = await prisma.watchlist.findMany({
-    where: { userId: session.userId },
-    include: {
-      vehicle: {
-        include: {
-          images: { where: { isCover: true }, take: 1 },
-          bids: { orderBy: { amount: "desc" }, take: 1 },
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  return NextResponse.json({
-    items: watchlist.map((w) => ({
-      id: w.id,
-      vehicleId: w.vehicle.id,
-      title: w.vehicle.title,
-      brand: w.vehicle.brand,
-      model: w.vehicle.model,
-      year: w.vehicle.year,
-      status: w.vehicle.status,
-      imageUrl: w.vehicle.images[0]?.url || null,
-      highBid: w.vehicle.bids[0]?.amount || w.vehicle.startingBid,
-      auctionEnd: w.vehicle.auctionEnd?.toISOString() || null,
-      addedAt: w.createdAt.toISOString(),
-    })),
-  });
-}
+});
 
 /**
- * POST - Adicionar veículo à watchlist
+ * POST - Adicionar à watchlist
  */
-export async function POST(request: NextRequest) {
-  const session = await getCurrentUser();
-  if (!session) {
-    return NextResponse.json({ error: "Não autenticado", requireLogin: true }, { status: 401 });
+export const POST = withAuth(async (request, { session }) => {
+  try {
+    const body = await request.json();
+    const { vehicleId } = AddToWatchlistInputSchema.parse(body);
+
+    const vehicle = await container.vehicleRepo.findById(vehicleId);
+    if (!vehicle) throw new NotFoundError("Veículo não encontrado");
+
+    const exists = await container.watchlistRepo.exists(session.userId, vehicleId);
+    if (exists) throw new ConflictError("Já está na sua lista");
+
+    await container.watchlistRepo.add(session.userId, vehicleId);
+    return NextResponse.json({ message: "Adicionado à lista de observação" });
+  } catch (error) {
+    return handleError(error);
   }
-
-  const body = await request.json();
-  const { vehicleId } = body;
-
-  if (!vehicleId) {
-    return NextResponse.json({ error: "vehicleId obrigatório" }, { status: 400 });
-  }
-
-  // Verificar se o veículo existe
-  const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
-  if (!vehicle) {
-    return NextResponse.json({ error: "Veículo não encontrado" }, { status: 404 });
-  }
-
-  // Verificar se já está na watchlist
-  const existing = await prisma.watchlist.findUnique({
-    where: { userId_vehicleId: { userId: session.userId, vehicleId } },
-  });
-
-  if (existing) {
-    return NextResponse.json({ error: "Já está na sua lista" }, { status: 409 });
-  }
-
-  await prisma.watchlist.create({
-    data: { userId: session.userId, vehicleId },
-  });
-
-  return NextResponse.json({ message: "Adicionado à lista de observação" });
-}
+});
 
 /**
- * DELETE - Remover veículo da watchlist
+ * DELETE - Remover da watchlist
  */
 export async function DELETE(request: NextRequest) {
-  const session = await getCurrentUser();
-  if (!session) {
-    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  try {
+    const session = await container.sessionService.get();
+    if (!session) {
+      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const vehicleId = searchParams.get("vehicleId");
+    if (!vehicleId) {
+      return NextResponse.json({ error: "vehicleId obrigatório" }, { status: 400 });
+    }
+
+    await container.watchlistRepo.remove(session.userId, vehicleId);
+    return NextResponse.json({ message: "Removido da lista de observação" });
+  } catch (error) {
+    return handleError(error);
   }
-
-  const { searchParams } = new URL(request.url);
-  const vehicleId = searchParams.get("vehicleId");
-
-  if (!vehicleId) {
-    return NextResponse.json({ error: "vehicleId obrigatório" }, { status: 400 });
-  }
-
-  await prisma.watchlist.deleteMany({
-    where: { userId: session.userId, vehicleId },
-  });
-
-  return NextResponse.json({ message: "Removido da lista de observação" });
 }
