@@ -5,30 +5,11 @@ import FilterBar from "@/components/FilterBar";
 
 export const dynamic = "force-dynamic";
 
-// Tags de marcas populares
-const BRAND_TAGS = [
-  "Ofertas Ativas",
-  "Resultados",
-  "Porsche",
-  "BMW",
-  "Golf GTI",
-  "Mercedes-Benz",
-  "Opala",
-  "Maverick",
-  "Mustang",
-  "Civic Si",
-  "Uno Turbo",
-  "Fusca",
-  "Skyline",
-  "Supra",
-  "WRX",
-  "Camaro",
-];
-
 export default async function HomePage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const params = await searchParams;
   const status = params.status || "active";
-  const yearRange = params.year || "";
+  const yearMin = params.yearMin || "";
+  const yearMax = params.yearMax || "";
   const transmission = params.transmission || "all";
   const fuel = params.fuel || "all";
 
@@ -43,9 +24,10 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
     where.status = status;
   }
 
-  if (yearRange) {
-    const [min, max] = yearRange.split("-").map(Number);
-    if (min && max) where.year = { gte: min, lte: max };
+  if (yearMin || yearMax) {
+    where.year = {};
+    if (yearMin) (where.year as Record<string, number>).gte = parseInt(yearMin);
+    if (yearMax) (where.year as Record<string, number>).lte = parseInt(yearMax);
   }
 
   if (transmission && transmission !== "all") {
@@ -74,24 +56,6 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 sm:px-6">
-      {/* Tags de marcas - scrollável horizontalmente */}
-      <div className="py-4 border-b border-gray-800">
-        <div className="flex items-center gap-2 overflow-x-auto tags-scroll pb-2">
-          {BRAND_TAGS.map((tag, i) => (
-            <button
-              key={tag}
-              className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition ${
-                i === 0
-                  ? "bg-[#dc2626] text-white"
-                  : "bg-[#1c1c1c] text-gray-300 hover:bg-[#2a2a2a] hover:text-white"
-              }`}
-            >
-              {tag}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Featured Vehicle */}
       {featured && (
         <section className="mt-6">
@@ -158,47 +122,6 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           </a>
         </section>
       )}
-
-      {/* Filtros */}
-      <section className="mt-8 flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-4">
-          <h2 className="text-2xl font-bold">Ofertas</h2>
-          <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1 bg-[#1c1c1c] hover:bg-[#2a2a2a] text-gray-300 text-sm px-3 py-1.5 rounded-md transition">
-              Anos
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            <button className="flex items-center gap-1 bg-[#1c1c1c] hover:bg-[#2a2a2a] text-gray-300 text-sm px-3 py-1.5 rounded-md transition">
-              Câmbio
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            <button className="flex items-center gap-1 bg-[#1c1c1c] hover:bg-[#2a2a2a] text-gray-300 text-sm px-3 py-1.5 rounded-md transition">
-              Tipo
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center gap-4 text-sm">
-          <button className="text-white font-medium border-b-2 border-[#dc2626] pb-0.5">
-            Encerrando em breve
-          </button>
-          <button className="text-gray-400 hover:text-white transition">
-            Recém listados
-          </button>
-          <button className="text-gray-400 hover:text-white transition">
-            Sem reserva
-          </button>
-          <button className="text-gray-400 hover:text-white transition">
-            Menor km
-          </button>
-        </div>
-      </section>
 
       {/* Grid de veículos - 4 colunas */}
       <section className="mt-6 pb-16">
