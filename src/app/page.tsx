@@ -26,8 +26,12 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
   if (yearMin || yearMax) {
     where.year = {};
-    if (yearMin) (where.year as Record<string, number>).gte = parseInt(yearMin);
-    if (yearMax) (where.year as Record<string, number>).lte = parseInt(yearMax);
+    const min = parseInt(yearMin);
+    const max = parseInt(yearMax);
+    if (yearMin && !isNaN(min) && min > 0) (where.year as Record<string, number>).gte = min;
+    if (yearMax && !isNaN(max) && max > 0) (where.year as Record<string, number>).lte = max;
+    // Se year ficou vazio (valores inválidos), remover
+    if (Object.keys(where.year as object).length === 0) delete where.year;
   }
 
   if (transmission && transmission !== "all") {

@@ -252,10 +252,11 @@ export default async function VehicleDetailPage({ params }: PageProps) {
             <VideoSection videos={[]} />
 
             {/* Análise IA */}
-            {aiAnalysis && (
+            {aiAnalysis && currentUser?.userId === vehicle.sellerId && (
               <div className="border border-blue-900/40 bg-[#1a2332] rounded-lg p-5">
                 <h3 className="text-sm font-semibold text-blue-300 uppercase tracking-wide mb-3 flex items-center gap-2">
                   🤖 Análise da Curadoria IA
+                  <span className="text-[10px] bg-blue-900/50 text-blue-400 px-1.5 py-0.5 rounded">Visível só para você</span>
                 </h3>
                 <div className="flex items-center gap-6 mb-3">
                   <div>
@@ -330,7 +331,7 @@ export default async function VehicleDetailPage({ params }: PageProps) {
                     sellerId={vehicle.sellerId}
                     variant="button"
                   />
-                  <span className="text-gray-500 text-sm">ℹ️ Como funciona</span>
+                  <a href="/sobre" className="text-gray-500 hover:text-[#d4a853] text-sm transition">ℹ️ Como funciona</a>
                   <WatchButton vehicleId={vehicle.id} size="sm" />
                 </div>
               </div>

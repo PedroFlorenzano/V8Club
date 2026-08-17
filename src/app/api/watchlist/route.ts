@@ -10,8 +10,35 @@ import { NotFoundError, ConflictError } from "@/domain/errors";
  */
 export const GET = withAuth(async (_request, { session }) => {
   try {
-    const items = await container.watchlistRepo.findByUserId(session.userId);
-    return NextResponse.json({ items });
+    const { prisma } = await import("@/infrastructure/database/prisma");
+    const watchlist = await prisma.watchlist.findMany({
+      where: { userId: session.userId },
+      include: {
+        vehicle: {
+          include: {
+            images: { where: { isCover: true }, take: 1 },
+            bids: { orderBy: { amount: "desc" }, take: 1 },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return NextResponse.json({
+      items: watchlist.map((w) => ({
+        id: w.id,
+        vehicleId: w.vehicle.id,
+        title: w.vehicle.title,
+        brand: w.vehicle.brand,
+        model: w.vehicle.model,
+        year: w.vehicle.year,
+        status: w.vehicle.status,
+        imageUrl: w.vehicle.images[0]?.url || null,
+        highBid: w.vehicle.bids[0]?.amount || w.vehicle.startingBid,
+        auctionEnd: w.vehicle.auctionEnd?.toISOString() || null,
+        addedAt: w.createdAt.toISOString(),
+      })),
+    });
   } catch (error) {
     return handleError(error);
   }

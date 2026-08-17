@@ -69,7 +69,9 @@ export default function FilterBar() {
   }
 
   function applyYears() {
-    router.push(buildUrl({ yearMin, yearMax }));
+    const validMin = yearMin && parseInt(yearMin) > 0 ? yearMin : "";
+    const validMax = yearMax && parseInt(yearMax) > 0 ? yearMax : "";
+    router.push(buildUrl({ yearMin: validMin, yearMax: validMax }));
   }
 
   const hasFilters =
