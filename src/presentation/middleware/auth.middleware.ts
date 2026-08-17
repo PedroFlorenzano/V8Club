@@ -2,18 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { container } from "@/infrastructure/container";
 import { TokenPayload } from "@/application/ports";
 
-type RouteContext = { params: Promise<Record<string, string>> };
+type RouteContext = { params?: Promise<Record<string, string>> };
 
 type AuthenticatedHandler = (
   request: NextRequest,
-  context: RouteContext & { session: TokenPayload }
+  context: { params: Promise<Record<string, string>>; session: TokenPayload }
 ) => Promise<NextResponse>;
 
 /**
  * Middleware que exige autenticação. Injeta `session` no context.
  */
 export function withAuth(handler: AuthenticatedHandler) {
-  return async (request: NextRequest, context: RouteContext) => {
+  return async (request: NextRequest, context?: RouteContext) => {
     const session = await container.sessionService.get();
     if (!session) {
       return NextResponse.json(
@@ -21,13 +21,14 @@ export function withAuth(handler: AuthenticatedHandler) {
         { status: 401 }
       );
     }
-    return handler(request, { ...context, session });
+    const params = context?.params || Promise.resolve({});
+    return handler(request, { params, session });
   };
 }
 
 type VerifiedHandler = (
   request: NextRequest,
-  context: RouteContext & { session: TokenPayload }
+  context: { params: Promise<Record<string, string>>; session: TokenPayload }
 ) => Promise<NextResponse>;
 
 /**
