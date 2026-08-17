@@ -1,49 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { verifyPassword, generateToken, setAuthCookie } from "@/lib/auth";
+import { LoginInputSchema } from "@/application/dtos";
+import { container } from "@/infrastructure/container";
+import { handleError } from "@/presentation/middleware/error-handler";
+import { UnauthorizedError } from "@/domain/errors";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password } = body;
+    const input = LoginInputSchema.parse(body);
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { error: "Email e senha são obrigatórios" },
-        { status: 400 }
-      );
-    }
+    const user = await container.userRepo.findByEmail(input.email.toLowerCase().trim());
+    if (!user) throw new UnauthorizedError("Email ou senha incorretos");
 
-    // Buscar usuário
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-    });
+    const isValid = await container.hasher.compare(input.password, user.passwordHash);
+    if (!isValid) throw new UnauthorizedError("Email ou senha incorretos");
 
-    if (!user) {
-      return NextResponse.json(
-        { error: "Email ou senha incorretos" },
-        { status: 401 }
-      );
-    }
-
-    // Verificar senha
-    const isValid = await verifyPassword(password, user.passwordHash);
-    if (!isValid) {
-      return NextResponse.json(
-        { error: "Email ou senha incorretos" },
-        { status: 401 }
-      );
-    }
-
-    // Gerar token e setar cookie
-    const token = generateToken({
+    const token = container.tokenService.sign({
       userId: user.id,
       email: user.email,
       role: user.role,
       verificationStatus: user.verificationStatus,
     });
-
-    await setAuthCookie(token);
+    await container.sessionService.set(token);
 
     return NextResponse.json({
       message: "Login realizado com sucesso",
@@ -59,10 +37,6 @@ export async function POST(request: NextRequest) {
       token,
     });
   } catch (error) {
-    console.error("Erro no login:", error);
-    return NextResponse.json(
-      { error: "Erro interno do servidor" },
-      { status: 500 }
-    );
+    return handleError(error);
   }
 }

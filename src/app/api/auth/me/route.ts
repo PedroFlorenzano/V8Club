@@ -1,41 +1,31 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { container } from "@/infrastructure/container";
+import { withAuth } from "@/presentation/middleware/auth.middleware";
+import { handleError } from "@/presentation/middleware/error-handler";
 
-export async function GET() {
-  const session = await getCurrentUser();
-  if (!session) {
-    return NextResponse.json({ user: null }, { status: 401 });
+export const GET = withAuth(async (_request, { session }) => {
+  try {
+    const user = await container.userRepo.findById(session.userId);
+    if (!user) {
+      return NextResponse.json({ user: null }, { status: 401 });
+    }
+
+    return NextResponse.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        cpf: user.cpf ? `***.***.${user.cpf.slice(6, 9)}-**` : null,
+        phone: user.phone,
+        verificationStatus: user.verificationStatus,
+        verifiedAt: user.verifiedAt,
+        hasDocuments: !!(user.docFrontUrl && user.docBackUrl),
+        hasSelfie: !!user.selfieUrl,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error) {
+    return handleError(error);
   }
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      cpf: true,
-      phone: true,
-      verificationStatus: true,
-      verifiedAt: true,
-      docFrontUrl: true,
-      docBackUrl: true,
-      selfieUrl: true,
-      createdAt: true,
-    },
-  });
-
-  if (!user) {
-    return NextResponse.json({ user: null }, { status: 401 });
-  }
-
-  return NextResponse.json({
-    user: {
-      ...user,
-      cpf: user.cpf ? `***.***.${user.cpf.slice(6, 9)}-**` : null,
-      hasDocuments: !!(user.docFrontUrl && user.docBackUrl),
-      hasSelfie: !!user.selfieUrl,
-    },
-  });
-}
+});

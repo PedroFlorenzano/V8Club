@@ -23,6 +23,9 @@ export interface User {
   verificationStatus: VerificationStatus;
   verificationNote: string | null;
   verifiedAt: Date | null;
+  docFrontUrl: string | null;
+  docBackUrl: string | null;
+  selfieUrl: string | null;
   cardBrand: string | null;
   cardLast4: string | null;
   cardType: string | null;

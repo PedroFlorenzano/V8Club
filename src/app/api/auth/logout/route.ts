@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { clearAuthCookie } from "@/lib/auth";
+import { container } from "@/infrastructure/container";
 
 export async function POST() {
-  await clearAuthCookie();
+  await container.sessionService.clear();
   return NextResponse.json({ message: "Logout realizado" });
 }
