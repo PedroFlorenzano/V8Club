@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  role          String    @default("user") // user, admin
+  
+  // KYC - Dados pessoais
+  cpf           String?   @unique
+  phone         String?
+  
+  // KYC - Documentos
+  docFrontUrl   String?   // URL da frente da CNH/RG
+  docBackUrl    String?   // URL do verso da CNH/RG
+  selfieUrl     String?   // URL da selfie de verificação
+  
+  // KYC - Status de verificação
+  verificationStatus  String  @default("unverified") // unverified, pending_docs, pending_selfie, pending_review, verified, rejected
+  verificationNote    String? // Nota do admin sobre rejeição
+  verifiedAt          DateTime?
+  
+  // Cartão vinculado (para cobrança da taxa de 5%)
+  cardBrand     String?   // visa, mastercard, elo, amex, hipercard
+  cardLast4     String?   // Últimos 4 dígitos
+  cardType      String?   // credit, debit
+  cardExpiry    String?   // MM/YY
+  cardHolderName String?  // Nome no cartão
+  cardToken     String?   // Token simulado (em produção: token do gateway)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  vehicles      Vehicle[]
+  bids          Bid[]
+  comments      Comment[]
+  sentMessages      Message[] @relation("SentMessages")
+  receivedMessages  Message[] @relation("ReceivedMessages")
+  salesAsBuyer      Sale[]    @relation("BuyerSales")
+  salesAsSeller     Sale[]    @relation("SellerSales")
+  watchlist         Watchlist[]
+}
+
+model Vehicle {
+  id              String    @id @default(cuid())
+  // Dados básicos
+  brand           String
+  model           String
+  year            Int
+  version         String?
+  color           String
+  mileage         Int
+  fuel            String    @default("Gasolina")
+  transmission    String    @default("Manual")
+  
+  // Documentação
+  plate           String?
+  chassi          String?
+  
+  // Descrição
+  title           String
+  description     String
+  highlights      String?   // Destaques separados por |
+  
+  // Preços
+  fipePrice       Int?      // Preço FIPE em centavos
+  reservePrice    Int?      // Preço de reserva em centavos
+  startingBid     Int       @default(0) // Lance inicial em centavos
+  
+  // Leilão
+  status          String    @default("pending") // pending, approved, rejected, active, sold, expired
+  auctionStart    DateTime?
+  auctionEnd      DateTime?
+  
+  // Curadoria IA
+  aiScore         Float?    // Score de desejabilidade 0-10
+  aiAnalysis      String?   // JSON com análise completa da IA
+  aiApproved      Boolean?
+  
+  // Relações
+  sellerId        String
+  seller          User      @relation(fields: [sellerId], references: [id])
+  images          VehicleImage[]
+  bids            Bid[]
+  comments        Comment[]
+  messages        Message[]
+  sale            Sale?
+  watchlist       Watchlist[]
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model VehicleImage {
+  id          String   @id @default(cuid())
+  url         String
+  filename    String
+  order       Int      @default(0)
+  isCover     Boolean  @default(false)
+  
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+}
+
+model Bid {
+  id              String   @id @default(cuid())
+  amount          Int      // Valor em centavos
+  paymentMethod   String   @default("pix")  // pix, financiamento, consorcio, troca, boleto
+  message         String?  // Mensagem opcional do comprador ao vendedor
+  status          String   @default("pending") // pending, accepted, rejected, expired
+  
+  // Taxa da plataforma (5% cap R$5000 = 500000 centavos)
+  platformFee     Int      @default(0) // Calculado automaticamente
+  
+  // Info adicional para troca
+  tradeVehicle    String?  // "Civic 2018 + R$ 50.000" se for troca
+  
+  // Termo vinculante
+  termsAccepted   Boolean  @default(false) // Comprador aceitou que a oferta é vinculante
+  
+  vehicleId       String
+  vehicle         Vehicle  @relation(fields: [vehicleId], references: [id])
+  
+  bidderId        String
+  bidder          User     @relation(fields: [bidderId], references: [id])
+  
+  sale            Sale?
+  
+  createdAt       DateTime @default(now())
+}
+
+model Comment {
+  id          String   @id @default(cuid())
+  content     String
+  
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+  
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  
+  createdAt   DateTime @default(now())
+}
+
+model Message {
+  id          String    @id @default(cuid())
+  content     String
+  
+  // Remetente e destinatário
+  senderId    String
+  sender      User      @relation("SentMessages", fields: [senderId], references: [id])
+  
+  receiverId  String
+  receiver    User      @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  
+  // Vinculado a um veículo (contexto)
+  vehicleId   String
+  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id])
+  
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model Sale {
+  id          String   @id @default(cuid())
+  
+  // Veículo vendido
+  vehicleId   String   @unique
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+  
+  // Oferta aceita
+  bidId       String   @unique
+  bid         Bid      @relation(fields: [bidId], references: [id])
+  
+  // Partes envolvidas
+  buyerId     String
+  buyer       User     @relation("BuyerSales", fields: [buyerId], references: [id])
+  
+  sellerId    String
+  seller      User     @relation("SellerSales", fields: [sellerId], references: [id])
+  
+  // Valores
+  salePrice       Int      // Valor final em centavos
+  platformFee     Int      // Taxa cobrada
+  paymentMethod   String
+  
+  // Dados de contato liberados (snapshot no momento da venda)
+  buyerEmail    String
+  buyerPhone    String?
+  buyerCpf      String?
+  sellerEmail   String
+  sellerPhone   String?
+  sellerCpf     String?
+  
+  // Status pós-venda
+  paymentConfirmed  Boolean   @default(false)
+  vehicleDelivered  Boolean   @default(false)
+  titleTransferred  Boolean   @default(false)
+  
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+}
+
+
+model Watchlist {
+  id          String   @id @default(cuid())
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  
+  @@unique([userId, vehicleId])
+}
